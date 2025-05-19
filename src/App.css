@@ -133,3 +133,12 @@ input[type="text"] {
 .radio-group + .grafico {
   margin-top: 20px;
 }
+
+.exportar-btn + .exportar-btn {
+  margin-top: 10px;
+  background-color: #7c3aed;
+}
+
+.exportar-btn + .exportar-btn:hover {
+  background-color: #6d28d9;
+}

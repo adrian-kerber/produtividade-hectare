@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import { toPng } from 'html-to-image';
 import download from 'downloadjs';
+import jsPDF from 'jspdf';
 
 function App() {
   const [area, setArea] = useState('');
@@ -61,6 +62,48 @@ function App() {
         console.error('Erro ao exportar imagem', err);
       });
   };
+
+const exportarPDF = async () => {
+  const graficoEl = document.getElementById('grafico');
+
+  try {
+    const dataUrl = await toPng(graficoEl);
+    const pdf = new jsPDF();
+
+    // 🧠 Encontrar cultivar com maior produtividade
+    const melhorCultivar = [...historico]
+      .filter(h => h.cultivar)
+      .reduce((top, curr) => curr.produtividade > top.produtividade ? curr : top, historico[0]);
+
+    // 📝 Texto do relatório
+    pdf.setFontSize(18);
+    pdf.text("Relatório de Produtividade", 15, 20);
+
+    pdf.setFontSize(12);
+    pdf.text(`Total de registros: ${historico.length}`, 15, 35);
+    pdf.text(`Cultivar com maior produtividade: ${melhorCultivar.cultivar} (${melhorCultivar.produtividade.toFixed(2)} sacas/ha)`, 15, 45);
+
+    pdf.text("Resumo por lote:", 15, 60);
+    historico.forEach((item, index) => {
+      pdf.text(
+        `${index + 1}. ${item.nome} – Cultivar: ${item.cultivar} – ${item.produtividade.toFixed(2)} sacas/ha`,
+        15,
+        70 + index * 10
+      );
+    });
+
+    // Inserir o gráfico como imagem (abaixo do conteúdo)
+    pdf.addPage();
+    pdf.setFontSize(14);
+    pdf.text("Gráfico de Produtividade", 15, 20);
+    pdf.addImage(dataUrl, 'PNG', 15, 30, 180, 100);
+
+    pdf.save('relatorio-produtividade.pdf');
+  } catch (err) {
+    console.error('Erro ao gerar PDF:', err);
+  }
+};
+
 
   const CustomTooltip = ({ active, payload }) => {
   if (active && payload && payload.length) {
@@ -216,6 +259,10 @@ function App() {
           <button className="exportar-btn" onClick={exportarGrafico}>
             Exportar gráfico como imagem
           </button>
+          <button className="exportar-btn" onClick={exportarPDF}>
+  Exportar relatório em PDF
+</button>
+
         </>
       )}
     </div>
