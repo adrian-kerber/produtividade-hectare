@@ -15,7 +15,8 @@ body {
 
 
 .container {
-  max-width: 400px;
+  max-width: 1000px; /* antes: 400px */
+  width: 95%;         /* responsivo em telas menores */
   margin: 50px auto;
   padding: 20px;
   border-radius: 12px;

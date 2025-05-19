@@ -12,6 +12,7 @@ import {
 import { toPng } from 'html-to-image';
 import download from 'downloadjs';
 import jsPDF from 'jspdf';
+import Papa from "papaparse";
 
 function App() {
   const [area, setArea] = useState('');
@@ -22,6 +23,7 @@ function App() {
   const [resultado, setResultado] = useState(null);
   const [historico, setHistorico] = useState([]);
   const [exibirPor, setExibirPor] = useState('lote');
+  const [csvData, setCsvData] = useState([]);
 
   const calcularProdutividade = () => {
     const areaNum = parseFloat(area);
@@ -53,7 +55,6 @@ function App() {
 
   const exportarGrafico = () => {
     const graficoEl = document.getElementById('grafico');
-
     toPng(graficoEl)
       .then((dataUrl) => {
         download(dataUrl, 'grafico-produtividade.png');
@@ -63,95 +64,140 @@ function App() {
       });
   };
 
-const exportarPDF = async () => {
-  const graficoEl = document.getElementById('grafico');
+  const exportarPDF = async () => {
+    const graficoEl = document.getElementById('grafico');
+    try {
+      const dataUrl = await toPng(graficoEl);
+      const pdf = new jsPDF();
 
-  try {
-    const dataUrl = await toPng(graficoEl);
-    const pdf = new jsPDF();
+      const todosDados = [...historico, ...csvData];
 
-    // 🧠 Encontrar cultivar com maior produtividade
-    const melhorCultivar = [...historico]
-      .filter(h => h.cultivar)
-      .reduce((top, curr) => curr.produtividade > top.produtividade ? curr : top, historico[0]);
+      const melhorCultivar = [...todosDados]
+        .filter(h => h.cultivar)
+        .reduce((top, curr) => curr.produtividade > top.produtividade ? curr : top, todosDados[0]);
 
-    // 📝 Texto do relatório
-    pdf.setFontSize(18);
-    pdf.text("Relatório de Produtividade", 15, 20);
+      pdf.setFontSize(18);
+      pdf.text("Relatório de Produtividade", 15, 20);
+      pdf.setFontSize(12);
+      pdf.text(`Total de registros: ${todosDados.length}`, 15, 35);
+      pdf.text(`Cultivar com maior produtividade: ${melhorCultivar.cultivar} (${melhorCultivar.produtividade.toFixed(2)} sacas/ha)`, 15, 45);
+      pdf.text("Resumo por talhão:", 15, 60);
+      todosDados.forEach((item, index) => {
+        pdf.text(
+          `${index + 1}. ${item.nome} – Cultivar: ${item.cultivar} – ${item.produtividade.toFixed(2)} sacas/ha`,
+          15,
+          70 + index * 10
+        );
+      });
 
-    pdf.setFontSize(12);
-    pdf.text(`Total de registros: ${historico.length}`, 15, 35);
-    pdf.text(`Cultivar com maior produtividade: ${melhorCultivar.cultivar} (${melhorCultivar.produtividade.toFixed(2)} sacas/ha)`, 15, 45);
+      pdf.addPage();
+      pdf.setFontSize(14);
+      pdf.text("Gráfico de Produtividade", 15, 20);
+      pdf.addImage(dataUrl, 'PNG', 15, 30, 180, 100);
+      pdf.save('relatorio-produtividade.pdf');
+    } catch (err) {
+      console.error('Erro ao gerar PDF:', err);
+    }
+  };
 
-    pdf.text("Resumo por lote:", 15, 60);
-    historico.forEach((item, index) => {
-      pdf.text(
-        `${index + 1}. ${item.nome} – Cultivar: ${item.cultivar} – ${item.produtividade.toFixed(2)} sacas/ha`,
-        15,
-        70 + index * 10
-      );
-    });
+  const handleCSVUpload = (event) => {
+  const file = event.target.files[0];
+  if (!file) return;
 
-    // Inserir o gráfico como imagem (abaixo do conteúdo)
-    pdf.addPage();
-    pdf.setFontSize(14);
-    pdf.text("Gráfico de Produtividade", 15, 20);
-    pdf.addImage(dataUrl, 'PNG', 15, 30, 180, 100);
+  Papa.parse(file, {
+    header: true,
+    skipEmptyLines: true,
+    complete: (results) => {
+      const agrupados = {};
 
-    pdf.save('relatorio-produtividade.pdf');
-  } catch (err) {
-    console.error('Erro ao gerar PDF:', err);
-  }
+      results.data.forEach((linha) => {
+        const area = parseFloat(linha.area?.replace(",", "."));
+        const quantidade = parseFloat(linha.quantidade?.replace(",", "."));
+        const nome = linha.nomeLote?.trim() || 'Lote CSV';
+        const cultivar = linha.cultivar?.trim() || 'Cultivar não informada';
+
+        const chave = `${nome}__${cultivar}`;
+
+        if (!agrupados[chave]) {
+          agrupados[chave] = {
+            nome,
+            cultivar,
+            area,
+            totalQuantidade: 0,
+          };
+        }
+
+        // Mantém a primeira área e soma apenas as quantidades
+        agrupados[chave].totalQuantidade += quantidade;
+      });
+
+      const dadosTratados = Object.values(agrupados).map(({ nome, cultivar, area, totalQuantidade }) => ({
+        nome,
+        cultivar,
+        produtividade: Number((totalQuantidade / area).toFixed(2)),
+      }));
+
+      setCsvData(dadosTratados);
+    },
+  });
 };
 
 
+
   const CustomTooltip = ({ active, payload }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div
-        style={{
+    if (active && payload && payload.length) {
+      return (
+        <div style={{
           backgroundColor: '#2e2e2e',
           padding: '10px',
           borderRadius: '8px',
           boxShadow: '0 0 5px rgba(0,0,0,0.2)',
-        }}
-      >
-        <p style={{ margin: 0 }}>
-          <strong>Produtividade:</strong> {payload[0].value.toFixed(2)} sacas/ha</p>
-        <p style={{ margin: 0, fontSize: '0.85rem', color: '#666' }}>
-          {exibirPor === 'cultivar' ? '(Média por cultivar)' : ''}
-        </p>
-      </div>
-    );
-  }
+        }}>
+          <p style={{ margin: 0 }}>
+            <strong>Produtividade:</strong> {payload[0].value.toFixed(2)} sacas/ha
+          </p>
+          <p style={{ margin: 0, fontSize: '0.85rem', color: '#666' }}>
+            {exibirPor === 'cultivar' ? '(Média por cultivar)' : ''}
+          </p>
+        </div>
+      );
+    }
 
-  return null;
-};
+    return null;
+  };
 
+  const dadosCombinados = [...historico, ...csvData];
 
   const dadosGrafico = exibirPor === 'cultivar'
-  ? Object.values(
-      historico.reduce((acc, item) => {
-        if (!acc[item.cultivar]) {
-          acc[item.cultivar] = {
-            cultivar: item.cultivar,
-            produtividadeTotal: 0,
-            count: 0,
-          };
-        }
-        acc[item.cultivar].produtividadeTotal += item.produtividade;
-        acc[item.cultivar].count += 1;
-        return acc;
-      }, {})
-    ).map((item) => ({
-      cultivar: item.cultivar,
-      produtividade: item.produtividadeTotal / item.count,
-    }))
-  : historico;
+    ? Object.values(
+        dadosCombinados.reduce((acc, item) => {
+          if (!acc[item.cultivar]) {
+            acc[item.cultivar] = {
+              cultivar: item.cultivar,
+              produtividadeTotal: 0,
+              count: 0,
+            };
+          }
+          acc[item.cultivar].produtividadeTotal += item.produtividade;
+          acc[item.cultivar].count += 1;
+          return acc;
+        }, {})
+      ).map((item) => ({
+        cultivar: item.cultivar,
+        produtividade: item.produtividadeTotal / item.count,
+      }))
+    : dadosCombinados;
 
   return (
     <div className="container">
       <h1>Calculadora de Produtividade</h1>
+
+      <input
+        type="file"
+        accept=".csv"
+        onChange={handleCSVUpload}
+        className="mb-4"
+      />
 
       <div className="input-group">
         <label>Área Plantada (hectares):</label>
@@ -191,7 +237,6 @@ const exportarPDF = async () => {
           onChange={(e) => setQuantidade(e.target.value)}
           placeholder="Ex: 550"
         />
-
         <div className="radio-group">
           <label>
             <input
@@ -215,10 +260,9 @@ const exportarPDF = async () => {
       </div>
 
       <button onClick={calcularProdutividade}>Calcular</button>
-
       {resultado && <p className="resultado">{resultado}</p>}
 
-      {historico.length > 0 && (
+      {dadosCombinados.length > 0 && (
         <>
           <div className="radio-group">
             <label>
@@ -228,7 +272,7 @@ const exportarPDF = async () => {
                 checked={exibirPor === 'lote'}
                 onChange={(e) => setExibirPor(e.target.value)}
               />
-              Exibir por Lote
+              Exibir por Talhão
             </label>
             <label>
               <input
@@ -244,11 +288,9 @@ const exportarPDF = async () => {
           <div className="grafico" id="grafico">
             <h2>Histórico de Produtividade</h2>
             <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={dadosGrafico}
-                margin={{ top: 20, right: 30, left: 0, bottom: 5 }}
-              >
+              <BarChart data={dadosGrafico} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey={exibirPor === 'lote' ? 'nome' : 'cultivar'} />
+                <XAxis dataKey={exibirPor === 'cultivar' ? 'cultivar' : 'nome'} />
                 <YAxis />
                 <Tooltip content={<CustomTooltip />} />
                 <Bar dataKey="produtividade" fill="#22c55e" />
@@ -260,9 +302,8 @@ const exportarPDF = async () => {
             Exportar gráfico como imagem
           </button>
           <button className="exportar-btn" onClick={exportarPDF}>
-  Exportar relatório em PDF
-</button>
-
+            Exportar relatório em PDF
+          </button>
         </>
       )}
     </div>
